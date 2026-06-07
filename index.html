@@ -39,44 +39,43 @@
       color: var(--accent);
     }
 
-    /* BOARD */
     #chessCanvas {
       touch-action: none;
       cursor: grab;
       border-radius: 10px;
       box-shadow: 0 25px 180px var(--shadow);
       border: 4px solid var(--accent2);
-      width: 100%;
-      max-width: 560px;
+
+      width: auto;
       height: auto;
+      display: block;
     }
 
-    /* PANEL */
     .panel {
       background: var(--panel);
       border-radius: 10px;
       border: 4px solid var(--accent2);
       backdrop-filter: blur(14px);
       box-shadow: 0 10px 40px var(--shadow);
+
+      max-height: 80vh;
+      overflow: hidden;
     }
 
-    /* BUTTON */
     .btn {
       background: var(--accent);
       color: white;
       padding: 10px 12px;
-      border-radius: 8px;
-      font-weight: 600;
       border-radius: 4px;
+      font-weight: 600;
     }
 
-    #fenInput{
+    #fenInput {
       border: 2px solid var(--border);
       background: transparent;
       color: var(--text);
     }
 
-    /* MOBILE IMPROVEMENTS */
     @media (max-width: 768px) {
       body {
         padding: 12px;
@@ -90,10 +89,6 @@
 
       #chessCanvas {
         max-width: 100%;
-      }
-
-      .panel {
-        padding: 12px;
       }
     }
   </style>
@@ -112,14 +107,15 @@
 
   <main class="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full max-w-6xl">
 
-    <!-- BOARD -->
     <div class="lg:col-span-2 flex justify-center">
-      <canvas id="chessCanvas"></canvas>
+      <div class="w-full flex justify-center">
+        <canvas id="chessCanvas"></canvas>
+      </div>
     </div>
 
-    <!-- PANEL -->
     <div class="panel p-4 flex flex-col gap-3">
-        <div class="text-xs uppercase opacity-60">FEN Code</div>
+
+      <div class="text-xs uppercase opacity-60">FEN Code</div>
 
       <textarea id="fenInput" class="w-full h-20 p-2 rounded font-mono text-xs" placeholder="FEN..."></textarea>
 
@@ -155,6 +151,19 @@
         Reset Board
       </button>
 
+      <div class="border-t pt-3 flex flex-col flex-1 overflow-hidden" style="border-color: var(--border);">
+
+        <div class="flex justify-between items-center">
+          <div class="text-xs uppercase opacity-60">Recent Validations</div>
+          <button onclick="loadResults()" class="text-xs underline opacity-60 hover:opacity-100">
+            refresh
+          </button>
+        </div>
+
+        <div id="resultsList" class="space-y-2 overflow-y-auto pr-1 flex-1"></div>
+
+      </div>
+
     </div>
 
   </main>
@@ -176,7 +185,6 @@
     let dragging = null;
     let dragPos = { x: 0, y: 0 };
 
-    /* PIECES */
     const icons = {
       r: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/br.png",
       n: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bn.png",
@@ -195,10 +203,19 @@
     const imgCache = {};
     let ready = false;
 
+    /* FIX 1: stable board sizing (no window.innerWidth drift) */
     function resizeBoard() {
-      size = Math.floor(Math.min(window.innerWidth, 560) / 8);
+      const w = canvas.parentElement.clientWidth;
+
+      // 👇 reduce board size to ~85% of available space
+      size = Math.floor((w * 0.85) / 8);
+
       canvas.width = size * 8;
       canvas.height = size * 8;
+
+      canvas.style.width = canvas.width + "px";
+      canvas.style.height = canvas.height + "px";
+
       draw();
     }
 
@@ -284,31 +301,23 @@
       }
     }
 
-    /* TOUCH + MOUSE DRAG */
+    /* FIX 2: consistent pointer mapping */
     function getPos(e) {
       const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+
       return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
       };
     }
 
+    /* FIX 3: no offsetX/offsetY (this was causing piece mismatch) */
     canvas.addEventListener("mousedown", (e) => {
-      const r = Math.floor(e.offsetY / size);
-      const c = Math.floor(e.offsetX / size);
-
-      if (board[r][c]) {
-        dragging = { piece: board[r][c], from: { r, c } };
-        board[r][c] = null;
-      }
-    });
-
-    canvas.addEventListener("touchstart", (e) => {
-      const t = e.touches[0];
-      const rect = canvas.getBoundingClientRect();
-
-      const r = Math.floor((t.clientY - rect.top) / size);
-      const c = Math.floor((t.clientX - rect.left) / size);
+      const pos = getPos(e);
+      const r = Math.floor(pos.y / size);
+      const c = Math.floor(pos.x / size);
 
       if (board[r][c]) {
         dragging = { piece: board[r][c], from: { r, c } };
@@ -322,25 +331,15 @@
       draw();
     });
 
-    window.addEventListener("touchmove", (e) => {
-      if (!dragging) return;
-      const t = e.touches[0];
-      dragPos = { x: t.clientX, y: t.clientY };
-      draw();
-    });
-
     window.addEventListener("mouseup", dropPiece);
-    window.addEventListener("touchend", dropPiece);
 
     function dropPiece(e) {
       if (!dragging) return;
 
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX || dragPos.x) - rect.left;
-      const y = (e.clientY || dragPos.y) - rect.top;
+      const pos = getPos(e);
 
-      const r = Math.min(7, Math.max(0, Math.floor(y / size)));
-      const c = Math.min(7, Math.max(0, Math.floor(x / size)));
+      const r = Math.min(7, Math.max(0, Math.floor(pos.y / size)));
+      const c = Math.min(7, Math.max(0, Math.floor(pos.x / size)));
 
       board[r][c] = dragging.piece;
       dragging = null;
@@ -349,27 +348,24 @@
       draw();
     }
 
-    /* STATS */
     function updateStats() {
-      let white = 0, black = 0, total = 0;
+      let w = 0, b = 0, t = 0;
 
       for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
           const p = board[r][c];
           if (p) {
-            total++;
-            if (p === p.toUpperCase()) white++;
-            else black++;
+            t++;
+            p === p.toUpperCase() ? w++ : b++;
           }
         }
       }
 
-      pieceCountEl.textContent = total;
-      whiteCountEl.textContent = white;
-      blackCountEl.textContent = black;
+      pieceCountEl.textContent = t;
+      whiteCountEl.textContent = w;
+      blackCountEl.textContent = b;
     }
 
-    /* VALIDATE */
     async function validateFen() {
       resultBox.classList.remove("hidden");
       resultBox.textContent = "Checking...";
@@ -390,14 +386,60 @@
           ? "✅ Valid position"
           : (data.message || "❌ Invalid position");
 
+        loadResults();
+
       } catch (err) {
         resultBox.textContent = "API Error: " + err.message;
       }
     }
 
-    /* RESET */
     function resetBoard() {
       loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    }
+
+    async function loadResults() {
+      const list = document.getElementById("resultsList");
+      list.innerHTML = "<div class='opacity-60 text-xs'>Loading...</div>";
+
+      try {
+        const res = await fetch(
+          "https://fen-validator-func-bafng5cbbpbmakep.germanywestcentral-01.azurewebsites.net/api/GetResults"
+        );
+
+        const data = await res.json();
+        renderResults(data.results || []);
+
+      } catch (err) {
+        list.innerHTML = `<div class="text-red-500 text-xs">${err.message}</div>`;
+      }
+    }
+
+    function renderResults(results) {
+      const list = document.getElementById("resultsList");
+
+      if (!results.length) {
+        list.innerHTML = "<div class='opacity-60 text-xs'>No results yet</div>";
+        return;
+      }
+
+      list.innerHTML = results.slice(0, 10).map(r => {
+        const icon = r.valid ? "✅" : "❌";
+        const color = r.valid ? "text-green-600" : "text-red-500";
+        const fen = r.fen.length > 42 ? r.fen.slice(0, 42) + "..." : r.fen;
+
+        return `
+      <div class="p-2 border rounded text-xs" style="border-color:var(--border);background:rgba(255,255,255,0.4)">
+        <div class="flex justify-between">
+          <span class="${color} font-semibold">${icon} ${r.valid ? "Valid" : "Invalid"}</span>
+          <span class="opacity-50">${r.errorCount}</span>
+        </div>
+        <div class="font-mono opacity-80">${fen}</div>
+        <div class="opacity-40 text-[10px]">
+          ${new Date(r.timestamp).toLocaleString()}
+        </div>
+      </div>
+    `;
+      }).join("");
     }
 
     window.addEventListener("resize", resizeBoard);
@@ -405,6 +447,7 @@
     preload();
     resizeBoard();
     resetBoard();
+    loadResults();
   </script>
 
 </body>
